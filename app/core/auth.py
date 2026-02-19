@@ -3,14 +3,15 @@ API 认证模块
 """
 
 from typing import Optional
-import os
-from fastapi import HTTPException, status, Security, Header
+from fastapi import HTTPException, status, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.core.config import get_config
 
 DEFAULT_API_KEY = ""
 DEFAULT_APP_KEY = "grok2api"
+DEFAULT_PUBLIC_KEY = ""
+DEFAULT_PUBLIC_ENABLED = False
 
 # 定义 Bearer Scheme
 security = HTTPBearer(
@@ -29,17 +30,27 @@ def get_admin_api_key() -> str:
     api_key = get_config("app.api_key", DEFAULT_API_KEY)
     return api_key or ""
 
-
-def get_admin_login_key() -> str:
-    """获取后台登录密钥。
-
-    优先读取环境变量 ADMIN_APP_KEY；未设置时回退到配置 app.app_key。
+def get_app_key() -> str:
     """
-    env_key = os.getenv("ADMIN_APP_KEY", "")
-    if env_key:
-        return env_key
+    获取 App Key（后台管理密码）。
+    """
     app_key = get_config("app.app_key", DEFAULT_APP_KEY)
     return app_key or ""
+
+def get_public_api_key() -> str:
+    """
+    获取 Public API Key。
+
+    为空时表示不启用 public 接口认证。
+    """
+    public_key = get_config("app.public_key", DEFAULT_PUBLIC_KEY)
+    return public_key or ""
+
+def is_public_enabled() -> bool:
+    """
+    是否开启 public 功能入口。
+    """
+    return bool(get_config("app.public_enabled", DEFAULT_PUBLIC_ENABLED))
 
 
 async def verify_api_key(
@@ -79,7 +90,7 @@ async def verify_app_key(
 
     app_key 必须配置，否则拒绝登录。
     """
-    app_key = get_admin_login_key()
+    app_key = get_app_key()
 
     if not app_key:
         raise HTTPException(
@@ -105,30 +116,38 @@ async def verify_app_key(
     return auth.credentials
 
 
-
-def get_config_guard_password() -> str:
-    """获取配置管理独立密码（仅环境变量）。"""
-    return os.getenv("CONFIG_ADMIN_PASSWORD", "") or ""
-
-
-async def verify_config_guard(
-    x_config_password: Optional[str] = Header(default=None, alias="X-Config-Password"),
+async def verify_public_key(
+    auth: Optional[HTTPAuthorizationCredentials] = Security(security),
 ) -> Optional[str]:
-    """验证配置管理独立密码；未设置环境变量时不启用。"""
-    guard_password = get_config_guard_password()
-    if not guard_password:
-        return None
+    """
+    验证 Public Key（public 接口使用）。
 
-    if not x_config_password:
+    默认不公开，需配置 public_key 才能访问；若开启 public_enabled 且未配置 public_key，则放开访问。
+    """
+    public_key = get_public_api_key()
+    public_enabled = is_public_enabled()
+
+    if not public_key:
+        if public_enabled:
+            return None
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing config password",
+            detail="Public access is disabled",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if x_config_password != guard_password:
+    if not auth:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid config password",
+            detail="Missing authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return x_config_password
+    if auth.credentials != public_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return auth.credentials

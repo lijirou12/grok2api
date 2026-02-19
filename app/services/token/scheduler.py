@@ -23,7 +23,6 @@ class TokenRefreshScheduler:
 
         while self._running:
             try:
-                await asyncio.sleep(self.interval_seconds)
                 storage = get_storage()
                 lock_acquired = False
                 lock = None
@@ -37,13 +36,14 @@ class TokenRefreshScheduler:
                     lock_acquired = await lock.acquire(blocking=False)
                 else:
                     try:
-                        async with storage.acquire_lock("token_refresh", timeout=0):
+                        async with storage.acquire_lock("token_refresh", timeout=1):
                             lock_acquired = True
                     except StorageError:
                         lock_acquired = False
 
                 if not lock_acquired:
                     logger.info("Scheduler: skipped (lock not acquired)")
+                    await asyncio.sleep(self.interval_seconds)
                     continue
 
                 try:
@@ -65,10 +65,13 @@ class TokenRefreshScheduler:
                         except Exception:
                             pass
 
+                await asyncio.sleep(self.interval_seconds)
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Scheduler: refresh error - {e}")
+                await asyncio.sleep(self.interval_seconds)
 
     def start(self):
         """启动调度器"""
