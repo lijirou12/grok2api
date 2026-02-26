@@ -7,6 +7,7 @@ import base64
 import binascii
 import time
 import uuid
+import orjson
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -17,7 +18,7 @@ from app.services.grok.services.image import ImageGenerationService
 from app.services.grok.services.image_edit import ImageEditService
 from app.services.grok.services.model import ModelService
 from app.services.grok.services.video import VideoService
-from app.services.grok.utils.response import make_chat_response
+from app.services.grok.utils.response import make_chat_response, make_chat_chunk, make_response_id, wrap_image_content
 from app.services.token import get_token_manager
 from app.core.config import get_config
 from app.core.exceptions import ValidationException, AppException, ErrorType
@@ -155,10 +156,16 @@ def _resolve_image_format(value: Optional[str]) -> str:
     )
 
 
-def _image_field(response_format: str) -> str:
-    if response_format == "url":
-        return "url"
-    return "b64_json"
+def _superimage_config() -> ImageConfig:
+    n = int(get_config("superimage.n", 6) or 6)
+    size = str(get_config("superimage.size", "1792x1024") or "1792x1024")
+    response_format = _resolve_image_format(
+        str(get_config("superimage.response_format", "url") or "url")
+    )
+    conf = ImageConfig(n=n, size=size, response_format=response_format)
+    _validate_image_config(conf, stream=False)
+    return conf
+
 
 def _validate_image_config(image_conf: ImageConfig, *, stream: bool):
     n = image_conf.n or 1
@@ -539,6 +546,18 @@ def validate_request(request: ChatCompletionRequest):
         request.video_config = config
 
 
+
+
+def _superimage_stream_chunks(model: str, content: str):
+    response_id = make_response_id()
+
+    async def _gen():
+        chunk = make_chat_chunk(response_id, model, content, index=0, is_final=True)
+        yield f"event: chat.completion.chunk\ndata: {orjson.dumps(chunk).decode()}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return _gen()
+
 router = APIRouter(tags=["Chat"])
 
 
@@ -554,6 +573,72 @@ async def chat_completions(request: ChatCompletionRequest):
 
     # 检测模型类型
     model_info = ModelService.get(request.model)
+    if request.model == "grok-superimage-1.0":
+        prompt, _ = _extract_prompt_images(request.messages)
+
+        image_conf = _superimage_config()
+        request.image_config = image_conf
+        request.stream = False
+
+        is_stream = False
+        response_format = _resolve_image_format(image_conf.response_format)
+        n = image_conf.n or 1
+        size = image_conf.size or "1792x1024"
+        aspect_ratio_map = {
+            "1280x720": "16:9",
+            "720x1280": "9:16",
+            "1792x1024": "3:2",
+            "1024x1792": "2:3",
+            "1024x1024": "1:1",
+        }
+        aspect_ratio = aspect_ratio_map.get(size, "3:2")
+        aspect_ratio = str(get_config("superimage.aspect_ratio", aspect_ratio) or aspect_ratio)
+
+        token_mgr = await get_token_manager()
+        await token_mgr.reload_if_stale()
+
+        token = None
+        for pool_name in ModelService.pool_candidates_for_model(request.model):
+            token = token_mgr.get_token(pool_name)
+            if token:
+                break
+
+        if not token:
+            raise AppException(
+                message="No available tokens. Please try again later.",
+                error_type=ErrorType.RATE_LIMIT.value,
+                code="rate_limit_exceeded",
+                status_code=429,
+            )
+
+        result = await ImageGenerationService().generate(
+            token_mgr=token_mgr,
+            token=token,
+            model_info=model_info,
+            prompt=prompt,
+            n=n,
+            response_format=response_format,
+            size=size,
+            aspect_ratio=aspect_ratio,
+            stream=is_stream,
+            chat_format=True,
+        )
+
+        outputs = [item for item in (result.data or []) if item and item != "error"]
+        content = "\n".join(
+            wrap_image_content(item, response_format) for item in outputs
+        ) if outputs else ""
+        usage = result.usage_override
+        if request.stream:
+            return StreamingResponse(
+                _superimage_stream_chunks(request.model, content),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+            )
+        return JSONResponse(
+            content=make_chat_response(request.model, content, usage=usage)
+        )
+
     if model_info and model_info.is_image_edit:
         prompt, image_urls = _extract_prompt_images(request.messages)
         if not image_urls:
@@ -570,7 +655,6 @@ async def chat_completions(request: ChatCompletionRequest):
         image_conf = request.image_config or ImageConfig()
         _validate_image_config(image_conf, stream=bool(is_stream))
         response_format = _resolve_image_format(image_conf.response_format)
-        response_field = _image_field(response_format)
         n = image_conf.n or 1
 
         token_mgr = await get_token_manager()
@@ -617,13 +701,13 @@ async def chat_completions(request: ChatCompletionRequest):
     if model_info and model_info.is_image:
         prompt, _ = _extract_prompt_images(request.messages)
 
+        image_conf = request.image_config or ImageConfig()
+
         is_stream = (
             request.stream if request.stream is not None else get_config("app.stream")
         )
-        image_conf = request.image_config or ImageConfig()
         _validate_image_config(image_conf, stream=bool(is_stream))
         response_format = _resolve_image_format(image_conf.response_format)
-        response_field = _image_field(response_format)
         n = image_conf.n or 1
         size = image_conf.size or "1024x1024"
         aspect_ratio_map = {
@@ -672,7 +756,13 @@ async def chat_completions(request: ChatCompletionRequest):
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
 
-        content = result.data[0] if result.data else ""
+        outputs = [item for item in (result.data or []) if item and item != "error"]
+        if outputs:
+            content = "\n".join(
+                wrap_image_content(item, response_format) for item in outputs
+            )
+        else:
+            content = ""
         usage = result.usage_override
         return JSONResponse(
             content=make_chat_response(request.model, content, usage=usage)
