@@ -111,7 +111,7 @@ docker compose up -d
 | `grok-imagine-1.0` | - | Basic/Super | - | 支持 | - |
 | `grok-imagine-1.0-edit` | - | Basic/Super | - | 支持 | - |
 | `grok-imagine-1.0-video` | - | Basic/Super | - | - | 支持 |
-| `grok-superimage-1.0` | - | Super | - | 支持 | - |
+| `grok-superimage-1.0` | - | Basic/Super | - | 支持 | - |
 
 <br>
 
