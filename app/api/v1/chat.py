@@ -177,6 +177,16 @@ def _superimage_config() -> ImageConfig:
     _validate_image_config(conf, stream=False)
     return conf
 
+def _superimage_config() -> ImageConfig:
+    n = int(get_config("superimage.n", 1) or 1)
+    size = str(get_config("superimage.size", "1792x1024") or "1792x1024")
+    response_format = _resolve_image_format(
+        str(get_config("superimage.response_format", "url") or "url")
+    )
+    conf = ImageConfig(n=n, size=size, response_format=response_format)
+    _validate_image_config(conf, stream=False)
+    return conf
+
 def _validate_image_config(image_conf: ImageConfig, *, stream: bool):
     n = image_conf.n or 1
     if n < 1 or n > 10:
@@ -214,6 +224,10 @@ def validate_request(request: ChatCompletionRequest):
             param="model",
             code="model_not_found",
         )
+
+    # superimage 始终按非流式返回，忽略客户端 stream 参数
+    if request.model == "grok-superimage-1.0":
+        request.stream = False
 
     # 验证消息
     for idx, msg in enumerate(request.messages):
@@ -635,7 +649,8 @@ async def chat_completions(request: ChatCompletionRequest):
         ) if outputs else ""
         usage = result.usage_override
         return JSONResponse(
-            content=make_chat_response(request.model, content, usage=usage)
+            content=make_chat_response(request.model, content, usage=usage),
+            headers={"X-Superimage-Stream": "ignored"},
         )
 
     if model_info and model_info.is_image_edit:
