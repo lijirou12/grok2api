@@ -30,7 +30,8 @@ const NUMERIC_FIELDS = new Set([
   'final_min_bytes',
   'medium_min_bytes',
   'concurrent',
-  'batch_size'
+  'batch_size',
+  'n'
 ]);
 
 const LOCALE_MAP = {
@@ -78,6 +79,15 @@ const LOCALE_MAP = {
     "concurrent": { title: "并发上限", desc: "Reverse 接口并发上限。" },
     "timeout": { title: "请求超时", desc: "Reverse 接口超时时间（秒）。" },
     "stream_timeout": { title: "流空闲超时", desc: "流式空闲超时时间（秒）。" }
+  },
+
+
+  "superimage": {
+    "label": "SuperImage 设置",
+    "n": { title: "生成数量", desc: "grok-superimage-1.0 每次生成的统一图片数量。" },
+    "size": { title: "图片尺寸", desc: "SuperImage 的统一尺寸（将映射为宽高比）。" },
+    "aspect_ratio": { title: "宽高比", desc: "SuperImage 统一宽高比（优先级高于 size 自动推导）。" },
+    "response_format": { title: "响应格式", desc: "SuperImage 返回格式（url/base64/b64_json）。" }
   },
 
 
@@ -410,6 +420,45 @@ function buildFieldCard(section, key, val) {
     built = buildSelectInput(section, key, val, [
       { val: 'html', text: 'HTML' },
       { val: 'url', text: 'URL' }
+    ]);
+  }
+  else if (section === 'superimage' && key === 'n') {
+    built = buildSelectInput(section, key, String(val), [
+      { val: '1', text: '1' },
+      { val: '2', text: '2' },
+      { val: '3', text: '3' },
+      { val: '4', text: '4' },
+      { val: '5', text: '5' },
+      { val: '6', text: '6' },
+      { val: '7', text: '7' },
+      { val: '8', text: '8' },
+      { val: '9', text: '9' },
+      { val: '10', text: '10' }
+    ]);
+  }
+  else if (section === 'superimage' && key === 'size') {
+    built = buildSelectInput(section, key, val, [
+      { val: '1280x720', text: '1280x720 (16:9)' },
+      { val: '720x1280', text: '720x1280 (9:16)' },
+      { val: '1792x1024', text: '1792x1024 (3:2)' },
+      { val: '1024x1792', text: '1024x1792 (2:3)' },
+      { val: '1024x1024', text: '1024x1024 (1:1)' }
+    ]);
+  }
+  else if (section === 'superimage' && key === 'aspect_ratio') {
+    built = buildSelectInput(section, key, val, [
+      { val: '16:9', text: '16:9' },
+      { val: '9:16', text: '9:16' },
+      { val: '3:2', text: '3:2' },
+      { val: '2:3', text: '2:3' },
+      { val: '1:1', text: '1:1' }
+    ]);
+  }
+  else if (section === 'superimage' && key === 'response_format') {
+    built = buildSelectInput(section, key, val, [
+      { val: 'url', text: 'URL' },
+      { val: 'base64', text: 'Base64' },
+      { val: 'b64_json', text: 'B64 JSON' }
     ]);
   }
   else if (Array.isArray(val) || typeof val === 'object') {
