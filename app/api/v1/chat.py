@@ -580,6 +580,7 @@ async def chat_completions(request: ChatCompletionRequest):
     model_info = ModelService.get(request.model)
     if request.model == "grok-superimage-1.0":
         prompt, _ = _extract_prompt_images(request.messages)
+        client_wants_stream = bool(request.stream)
 
         image_conf = _superimage_config()
         request.image_config = image_conf
@@ -634,7 +635,7 @@ async def chat_completions(request: ChatCompletionRequest):
             wrap_image_content(item, response_format) for item in outputs
         ) if outputs else ""
         usage = result.usage_override
-        if request.stream:
+        if client_wants_stream:
             return StreamingResponse(
                 _superimage_stream_chunks(request.model, content),
                 media_type="text/event-stream",
