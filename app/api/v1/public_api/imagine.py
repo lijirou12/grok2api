@@ -110,6 +110,7 @@ async def _drop_sessions(task_ids: List[str]) -> int:
     return removed
 
 
+@router.websocket("/superimage/ws")
 @router.websocket("/imagine/ws")
 async def public_imagine_ws(websocket: WebSocket):
     session_id = None
@@ -157,7 +158,7 @@ async def public_imagine_ws(websocket: WebSocket):
         stop_event.clear()
 
     async def _run(prompt: str, aspect_ratio: str, nsfw: Optional[bool]):
-        model_id = "grok-imagine-1.0"
+        model_id = "grok-superimage-1.0"
         model_info = ModelService.get(model_id)
         if not model_info or not model_info.is_image:
             await _send(
@@ -209,10 +210,10 @@ async def public_imagine_ws(websocket: WebSocket):
                     token=token,
                     model_info=model_info,
                     prompt=prompt,
-                    n=6,
+                    n=int(get_config("superimage.n", 6) or 6),
                     response_format="b64_json",
-                    size="1024x1024",
-                    aspect_ratio=aspect_ratio,
+                    size=str(get_config("superimage.size", "1792x1024") or "1792x1024"),
+                    aspect_ratio=str(get_config("superimage.aspect_ratio", aspect_ratio) or aspect_ratio),
                     stream=True,
                     enable_nsfw=nsfw,
                 )
@@ -328,6 +329,7 @@ async def public_imagine_ws(websocket: WebSocket):
             await _drop_session(session_id)
 
 
+@router.get("/superimage/sse")
 @router.get("/imagine/sse")
 async def public_imagine_sse(
     request: Request,
@@ -368,7 +370,7 @@ async def public_imagine_sse(
 
     async def event_stream():
         try:
-            model_id = "grok-imagine-1.0"
+            model_id = "grok-superimage-1.0"
             model_info = ModelService.get(model_id)
             if not model_info or not model_info.is_image:
                 yield (
@@ -414,10 +416,10 @@ async def public_imagine_sse(
                         token=token,
                         model_info=model_info,
                         prompt=prompt,
-                        n=6,
+                        n=int(get_config("superimage.n", 6) or 6),
                         response_format="b64_json",
-                        size="1024x1024",
-                        aspect_ratio=ratio,
+                        size=str(get_config("superimage.size", "1792x1024") or "1792x1024"),
+                        aspect_ratio=str(get_config("superimage.aspect_ratio", ratio) or ratio),
                         stream=True,
                         enable_nsfw=nsfw,
                     )
@@ -470,9 +472,14 @@ async def public_imagine_sse(
     )
 
 
+@router.get("/superimage/config")
 @router.get("/imagine/config")
 async def public_imagine_config():
     return {
+        "model": "grok-superimage-1.0",
+        "n": int(get_config("superimage.n", 6) or 6),
+        "size": str(get_config("superimage.size", "1792x1024") or "1792x1024"),
+        "aspect_ratio": str(get_config("superimage.aspect_ratio", "3:2") or "3:2"),
         "final_min_bytes": int(get_config("image.final_min_bytes") or 0),
         "medium_min_bytes": int(get_config("image.medium_min_bytes") or 0),
         "nsfw": bool(get_config("image.nsfw")),
@@ -485,6 +492,7 @@ class ImagineStartRequest(BaseModel):
     nsfw: Optional[bool] = None
 
 
+@router.post("/superimage/start", dependencies=[Depends(verify_public_key)])
 @router.post("/imagine/start", dependencies=[Depends(verify_public_key)])
 async def public_imagine_start(data: ImagineStartRequest):
     prompt = (data.prompt or "").strip()
@@ -499,6 +507,7 @@ class ImagineStopRequest(BaseModel):
     task_ids: List[str]
 
 
+@router.post("/superimage/stop", dependencies=[Depends(verify_public_key)])
 @router.post("/imagine/stop", dependencies=[Depends(verify_public_key)])
 async def public_imagine_stop(data: ImagineStopRequest):
     removed = await _drop_sessions(data.task_ids or [])

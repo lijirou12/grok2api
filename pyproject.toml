@@ -17,6 +17,7 @@ dependencies = [
     "livekit>=1.0.25",
     "loguru>=0.7.3",
     "orjson>=3.11.4",
+    "pydantic>=2.11.0",
     "python-dotenv>=1.0.0",
     "python-multipart>=0.0.21",
     "redis>=6.4.0",
