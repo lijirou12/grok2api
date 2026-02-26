@@ -7,6 +7,7 @@ import base64
 import binascii
 import time
 import uuid
+import orjson
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -155,10 +156,16 @@ def _resolve_image_format(value: Optional[str]) -> str:
     )
 
 
-def _image_field(response_format: str) -> str:
-    if response_format == "url":
-        return "url"
-    return "b64_json"
+def _superimage_config() -> ImageConfig:
+    n = int(get_config("superimage.n", 6) or 6)
+    size = str(get_config("superimage.size", "1792x1024") or "1792x1024")
+    response_format = _resolve_image_format(
+        str(get_config("superimage.response_format", "url") or "url")
+    )
+    conf = ImageConfig(n=n, size=size, response_format=response_format)
+    _validate_image_config(conf, stream=False)
+    return conf
+
 
 def _superimage_config() -> ImageConfig:
     n = int(get_config("superimage.n", 1) or 1)
@@ -458,7 +465,12 @@ def validate_request(request: ChatCompletionRequest):
                 param="messages",
                 code="empty_prompt",
             )
-        image_conf = request.image_config or ImageConfig()
+        if request.model == "grok-superimage-1.0":
+            image_conf = _superimage_config()
+            request.image_config = image_conf
+            request.stream = False
+        else:
+            image_conf = request.image_config or ImageConfig()
         n = image_conf.n or 1
         if not (1 <= n <= 10):
             raise ValidationException(
@@ -547,6 +559,10 @@ def validate_request(request: ChatCompletionRequest):
                 code="invalid_preset",
             )
         request.video_config = config
+
+
+
+
 
 
 router = APIRouter(tags=["Chat"])
@@ -638,7 +654,6 @@ async def chat_completions(request: ChatCompletionRequest):
         image_conf = request.image_config or ImageConfig()
         _validate_image_config(image_conf, stream=bool(is_stream))
         response_format = _resolve_image_format(image_conf.response_format)
-        response_field = _image_field(response_format)
         n = image_conf.n or 1
 
         token_mgr = await get_token_manager()
@@ -685,13 +700,13 @@ async def chat_completions(request: ChatCompletionRequest):
     if model_info and model_info.is_image:
         prompt, _ = _extract_prompt_images(request.messages)
 
+        image_conf = request.image_config or ImageConfig()
+
         is_stream = (
             request.stream if request.stream is not None else get_config("app.stream")
         )
-        image_conf = request.image_config or ImageConfig()
         _validate_image_config(image_conf, stream=bool(is_stream))
         response_format = _resolve_image_format(image_conf.response_format)
-        response_field = _image_field(response_format)
         n = image_conf.n or 1
         size = image_conf.size or "1024x1024"
         aspect_ratio_map = {
@@ -702,6 +717,8 @@ async def chat_completions(request: ChatCompletionRequest):
             "1024x1024": "1:1",
         }
         aspect_ratio = aspect_ratio_map.get(size, "2:3")
+        if request.model == "grok-superimage-1.0":
+            aspect_ratio = str(get_config("superimage.aspect_ratio", aspect_ratio) or aspect_ratio)
 
         token_mgr = await get_token_manager()
         await token_mgr.reload_if_stale()
@@ -740,7 +757,13 @@ async def chat_completions(request: ChatCompletionRequest):
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
 
-        content = result.data[0] if result.data else ""
+        outputs = [item for item in (result.data or []) if item and item != "error"]
+        if outputs:
+            content = "\n".join(
+                wrap_image_content(item, response_format) for item in outputs
+            )
+        else:
+            content = ""
         usage = result.usage_override
         return JSONResponse(
             content=make_chat_response(request.model, content, usage=usage)
