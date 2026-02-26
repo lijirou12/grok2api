@@ -7,6 +7,7 @@ import base64
 import binascii
 import time
 import uuid
+import orjson
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -17,7 +18,7 @@ from app.services.grok.services.image import ImageGenerationService
 from app.services.grok.services.image_edit import ImageEditService
 from app.services.grok.services.model import ModelService
 from app.services.grok.services.video import VideoService
-from app.services.grok.utils.response import make_chat_response, wrap_image_content
+from app.services.grok.utils.response import make_chat_response, make_chat_chunk, make_response_id, wrap_image_content
 from app.services.token import get_token_manager
 from app.core.config import get_config
 from app.core.exceptions import ValidationException, AppException, ErrorType
@@ -550,6 +551,18 @@ def validate_request(request: ChatCompletionRequest):
         request.video_config = config
 
 
+
+
+def _superimage_stream_chunks(model: str, content: str):
+    response_id = make_response_id()
+
+    async def _gen():
+        chunk = make_chat_chunk(response_id, model, content, index=0, is_final=True)
+        yield f"event: chat.completion.chunk\ndata: {orjson.dumps(chunk).decode()}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return _gen()
+
 router = APIRouter(tags=["Chat"])
 
 
@@ -621,6 +634,12 @@ async def chat_completions(request: ChatCompletionRequest):
             wrap_image_content(item, response_format) for item in outputs
         ) if outputs else ""
         usage = result.usage_override
+        if request.stream:
+            return StreamingResponse(
+                _superimage_stream_chunks(request.model, content),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+            )
         return JSONResponse(
             content=make_chat_response(request.model, content, usage=usage)
         )
@@ -687,12 +706,7 @@ async def chat_completions(request: ChatCompletionRequest):
     if model_info and model_info.is_image:
         prompt, _ = _extract_prompt_images(request.messages)
 
-        if request.model == "grok-superimage-1.0":
-            image_conf = _superimage_config()
-            request.image_config = image_conf
-            request.stream = False
-        else:
-            image_conf = request.image_config or ImageConfig()
+        image_conf = request.image_config or ImageConfig()
 
         is_stream = (
             request.stream if request.stream is not None else get_config("app.stream")
