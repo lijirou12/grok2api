@@ -111,6 +111,7 @@ docker compose up -d
 | `grok-imagine-1.0` | - | Basic/Super | - | Yes | - |
 | `grok-imagine-1.0-edit` | - | Basic/Super | - | Yes | - |
 | `grok-imagine-1.0-video` | - | Basic/Super | - | - | Yes |
+| `grok-superimage-1.0` | - | Super | - | Yes | - |
 
 <br>
 
@@ -148,7 +149,7 @@ curl http://localhost:8000/v1/chat/completions \
 | └─ `video_length` | integer | Video length (seconds) | `6`, `10`, `15` |
 | └─ `resolution_name` | string | Resolution | `480p`, `720p` |
 | └─ `preset` | string | Style preset | `fun`, `normal`, `spicy`, `custom` |
-| `image_config` | object | **Image models only** | Supported: `grok-imagine-1.0` / `grok-imagine-1.0-edit` |
+| `image_config` | object | **Image models only** | Supported: `grok-imagine-1.0` / `grok-superimage-1.0` / `grok-imagine-1.0-edit` |
 | └─ `n` | integer | Number of images | `1` ~ `10` |
 | └─ `size` | string | Image size | `1280x720`, `720x1280`, `1792x1024`, `1024x1792`, `1024x1024` |
 | └─ `response_format` | string | Response format | `url`, `b64_json`, `base64` |
@@ -175,6 +176,7 @@ curl http://localhost:8000/v1/chat/completions \
 - `reasoning_effort`: `none` disables thinking output; any other value enables it.
 - `grok-imagine-1.0-edit` requires an image; if multiple are provided, the last image and last text are used.
 - `grok-imagine-1.0-video` supports text-to-video and image-to-video via `image_url`.
+- `grok-superimage-1.0` uses the imagine waterfall channel and overrides `image_config` with server-side `[superimage]` settings.
 - Any other parameters will be discarded and ignored.
 
 <br>

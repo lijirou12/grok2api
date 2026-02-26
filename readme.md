@@ -111,6 +111,7 @@ docker compose up -d
 | `grok-imagine-1.0` | - | Basic/Super | - | 支持 | - |
 | `grok-imagine-1.0-edit` | - | Basic/Super | - | 支持 | - |
 | `grok-imagine-1.0-video` | - | Basic/Super | - | - | 支持 |
+| `grok-superimage-1.0` | - | Super | - | 支持 | - |
 
 <br>
 
@@ -148,7 +149,7 @@ curl http://localhost:8000/v1/chat/completions \
 | └─`video_length` | integer | 视频时长 (秒) | `6`, `10`, `15` |
 | └─`resolution_name` | string | 分辨率 | `480p`, `720p` |
 | └─`preset` | string | 风格预设 | `fun`, `normal`, `spicy`, `custom` |
-| `image_config` | object | **图片模型专用配置对象** | 支持：`grok-imagine-1.0` / `grok-imagine-1.0-edit` |
+| `image_config` | object | **图片模型专用配置对象** | 支持：`grok-imagine-1.0` / `grok-superimage-1.0` / `grok-imagine-1.0-edit` |
 | └─`n` | integer | 生成数量 | `1` ~ `10` |
 | └─`size` | string | 图片尺寸 | `1280x720`, `720x1280`, `1792x1024`, `1024x1792`, `1024x1024` |
 | └─`response_format` | string | 响应格式 | `url`, `b64_json`, `base64` |
@@ -175,6 +176,7 @@ curl http://localhost:8000/v1/chat/completions \
 - `reasoning_effort`：`none` 表示不输出思考，其他值都会输出思考内容。
 - `grok-imagine-1.0-edit` 必须提供图片，多图默认取最后一张与最后一个文本。
 - `grok-imagine-1.0-video` 支持文生视频与图生视频（通过 `image_url` 传参考图）。
+- `grok-superimage-1.0` 走 imagine 瀑布流通道，`image_config` 会被服务器端 `[superimage]` 统一配置覆盖。
 - 除上述外的其他参数将自动丢弃并忽略。
 
 <br>
