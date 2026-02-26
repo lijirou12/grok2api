@@ -17,7 +17,7 @@ from app.services.grok.services.image import ImageGenerationService
 from app.services.grok.services.image_edit import ImageEditService
 from app.services.grok.services.model import ModelService
 from app.services.grok.services.video import VideoService
-from app.services.grok.utils.response import make_chat_response
+from app.services.grok.utils.response import make_chat_response, wrap_image_content
 from app.services.token import get_token_manager
 from app.core.config import get_config
 from app.core.exceptions import ValidationException, AppException, ErrorType
@@ -159,6 +159,16 @@ def _image_field(response_format: str) -> str:
     if response_format == "url":
         return "url"
     return "b64_json"
+
+def _superimage_config() -> ImageConfig:
+    n = int(get_config("superimage.n", 1) or 1)
+    size = str(get_config("superimage.size", "1792x1024") or "1792x1024")
+    response_format = _resolve_image_format(
+        str(get_config("superimage.response_format", "url") or "url")
+    )
+    conf = ImageConfig(n=n, size=size, response_format=response_format)
+    _validate_image_config(conf, stream=False)
+    return conf
 
 def _validate_image_config(image_conf: ImageConfig, *, stream: bool):
     n = image_conf.n or 1
@@ -554,6 +564,64 @@ async def chat_completions(request: ChatCompletionRequest):
 
     # 检测模型类型
     model_info = ModelService.get(request.model)
+    if request.model == "grok-superimage-1.0":
+        prompt, _ = _extract_prompt_images(request.messages)
+        image_conf = _superimage_config()
+        request.image_config = image_conf
+        request.stream = False
+
+        response_format = _resolve_image_format(image_conf.response_format)
+        n = image_conf.n or 1
+        size = image_conf.size or "1792x1024"
+        aspect_ratio_map = {
+            "1280x720": "16:9",
+            "720x1280": "9:16",
+            "1792x1024": "3:2",
+            "1024x1792": "2:3",
+            "1024x1024": "1:1",
+        }
+        aspect_ratio = aspect_ratio_map.get(size, "3:2")
+        aspect_ratio = str(get_config("superimage.aspect_ratio", aspect_ratio) or aspect_ratio)
+
+        token_mgr = await get_token_manager()
+        await token_mgr.reload_if_stale()
+
+        token = None
+        for pool_name in ModelService.pool_candidates_for_model(request.model):
+            token = token_mgr.get_token(pool_name)
+            if token:
+                break
+
+        if not token:
+            raise AppException(
+                message="No available tokens. Please try again later.",
+                error_type=ErrorType.RATE_LIMIT.value,
+                code="rate_limit_exceeded",
+                status_code=429,
+            )
+
+        result = await ImageGenerationService().generate(
+            token_mgr=token_mgr,
+            token=token,
+            model_info=model_info,
+            prompt=prompt,
+            n=n,
+            response_format=response_format,
+            size=size,
+            aspect_ratio=aspect_ratio,
+            stream=False,
+            chat_format=True,
+        )
+
+        outputs = [item for item in (result.data or []) if item and item != "error"]
+        content = "\n".join(
+            wrap_image_content(item, response_format) for item in outputs
+        ) if outputs else ""
+        usage = result.usage_override
+        return JSONResponse(
+            content=make_chat_response(request.model, content, usage=usage)
+        )
+
     if model_info and model_info.is_image_edit:
         prompt, image_urls = _extract_prompt_images(request.messages)
         if not image_urls:
