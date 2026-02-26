@@ -197,6 +197,16 @@ def _superimage_config() -> ImageConfig:
     _validate_image_config(conf, stream=False)
     return conf
 
+def _superimage_config() -> ImageConfig:
+    n = int(get_config("superimage.n", 1) or 1)
+    size = str(get_config("superimage.size", "1792x1024") or "1792x1024")
+    response_format = _resolve_image_format(
+        str(get_config("superimage.response_format", "url") or "url")
+    )
+    conf = ImageConfig(n=n, size=size, response_format=response_format)
+    _validate_image_config(conf, stream=False)
+    return conf
+
 def _validate_image_config(image_conf: ImageConfig, *, stream: bool):
     n = image_conf.n or 1
     if n < 1 or n > 10:
@@ -590,7 +600,7 @@ def _superimage_sse_response(model: str, content: str):
 
     async def _gen():
         chunk = make_chat_chunk(response_id, model, content, index=0, is_final=True)
-        yield f"event: chat.completion.chunk\ndata: {orjson.dumps(chunk).decode()}\n\n"
+        yield f"data: {orjson.dumps(chunk).decode()}\n\n"
         yield "data: [DONE]\n\n"
 
     return _gen()
