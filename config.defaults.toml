@@ -108,6 +108,17 @@ medium_min_bytes = 30000
 # 判定为最终图的最小字节数
 final_min_bytes = 100000
 
+# ==================== SuperImage 配置 ====================
+[superimage]
+# /v1/chat/completions 使用 grok-superimage-1.0 时的统一生成数量
+n = 6
+# 统一输出尺寸（会自动转换为 aspect_ratio）
+size = "1792x1024"
+# 统一宽高比（优先级高于 size 自动推导）
+aspect_ratio = "3:2"
+# 统一响应格式（url/base64/b64_json）
+response_format = "url"
+
 # ==================== 视频配置 ====================
 [video]
 # Reverse 接口并发上限
