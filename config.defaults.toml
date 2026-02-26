@@ -111,7 +111,7 @@ final_min_bytes = 100000
 # ==================== SuperImage 配置 ====================
 [superimage]
 # /v1/chat/completions 使用 grok-superimage-1.0 时的统一生成数量
-n = 6
+n = 1
 # 统一输出尺寸（会自动转换为 aspect_ratio）
 size = "1792x1024"
 # 统一宽高比（优先级高于 size 自动推导）

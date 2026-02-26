@@ -167,6 +167,16 @@ def _superimage_config() -> ImageConfig:
     return conf
 
 
+def _superimage_config() -> ImageConfig:
+    n = int(get_config("superimage.n", 1) or 1)
+    size = str(get_config("superimage.size", "1792x1024") or "1792x1024")
+    response_format = _resolve_image_format(
+        str(get_config("superimage.response_format", "url") or "url")
+    )
+    conf = ImageConfig(n=n, size=size, response_format=response_format)
+    _validate_image_config(conf, stream=False)
+    return conf
+
 def _validate_image_config(image_conf: ImageConfig, *, stream: bool):
     n = image_conf.n or 1
     if n < 1 or n > 10:
@@ -576,7 +586,6 @@ async def chat_completions(request: ChatCompletionRequest):
         request.image_config = image_conf
         request.stream = False
 
-        is_stream = False
         response_format = _resolve_image_format(image_conf.response_format)
         n = image_conf.n or 1
         size = image_conf.size or "1792x1024"
@@ -616,7 +625,7 @@ async def chat_completions(request: ChatCompletionRequest):
             response_format=response_format,
             size=size,
             aspect_ratio=aspect_ratio,
-            stream=is_stream,
+            stream=False,
             chat_format=True,
         )
 
