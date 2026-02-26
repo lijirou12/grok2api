@@ -155,10 +155,16 @@ def _resolve_image_format(value: Optional[str]) -> str:
     )
 
 
-def _image_field(response_format: str) -> str:
-    if response_format == "url":
-        return "url"
-    return "b64_json"
+def _superimage_config() -> ImageConfig:
+    n = int(get_config("superimage.n", 6) or 6)
+    size = str(get_config("superimage.size", "1792x1024") or "1792x1024")
+    response_format = _resolve_image_format(
+        str(get_config("superimage.response_format", "url") or "url")
+    )
+    conf = ImageConfig(n=n, size=size, response_format=response_format)
+    _validate_image_config(conf, stream=False)
+    return conf
+
 
 def _validate_image_config(image_conf: ImageConfig, *, stream: bool):
     n = image_conf.n or 1
@@ -448,7 +454,12 @@ def validate_request(request: ChatCompletionRequest):
                 param="messages",
                 code="empty_prompt",
             )
-        image_conf = request.image_config or ImageConfig()
+        if request.model == "grok-superimage-1.0":
+            image_conf = _superimage_config()
+            request.image_config = image_conf
+            request.stream = False
+        else:
+            image_conf = request.image_config or ImageConfig()
         n = image_conf.n or 1
         if not (1 <= n <= 10):
             raise ValidationException(
@@ -570,7 +581,6 @@ async def chat_completions(request: ChatCompletionRequest):
         image_conf = request.image_config or ImageConfig()
         _validate_image_config(image_conf, stream=bool(is_stream))
         response_format = _resolve_image_format(image_conf.response_format)
-        response_field = _image_field(response_format)
         n = image_conf.n or 1
 
         token_mgr = await get_token_manager()
@@ -620,10 +630,14 @@ async def chat_completions(request: ChatCompletionRequest):
         is_stream = (
             request.stream if request.stream is not None else get_config("app.stream")
         )
-        image_conf = request.image_config or ImageConfig()
+        if request.model == "grok-superimage-1.0":
+            image_conf = _superimage_config()
+            request.image_config = image_conf
+            request.stream = False
+        else:
+            image_conf = request.image_config or ImageConfig()
         _validate_image_config(image_conf, stream=bool(is_stream))
         response_format = _resolve_image_format(image_conf.response_format)
-        response_field = _image_field(response_format)
         n = image_conf.n or 1
         size = image_conf.size or "1024x1024"
         aspect_ratio_map = {
@@ -634,6 +648,8 @@ async def chat_completions(request: ChatCompletionRequest):
             "1024x1024": "1:1",
         }
         aspect_ratio = aspect_ratio_map.get(size, "2:3")
+        if request.model == "grok-superimage-1.0":
+            aspect_ratio = str(get_config("superimage.aspect_ratio", aspect_ratio) or aspect_ratio)
 
         token_mgr = await get_token_manager()
         await token_mgr.reload_if_stale()
