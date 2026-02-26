@@ -455,7 +455,12 @@ def validate_request(request: ChatCompletionRequest):
                 param="messages",
                 code="empty_prompt",
             )
-        image_conf = request.image_config or ImageConfig()
+        if request.model == "grok-superimage-1.0":
+            image_conf = _superimage_config()
+            request.image_config = image_conf
+            request.stream = False
+        else:
+            image_conf = request.image_config or ImageConfig()
         n = image_conf.n or 1
         if not (1 <= n <= 10):
             raise ValidationException(
@@ -718,6 +723,8 @@ async def chat_completions(request: ChatCompletionRequest):
             "1024x1024": "1:1",
         }
         aspect_ratio = aspect_ratio_map.get(size, "2:3")
+        if request.model == "grok-superimage-1.0":
+            aspect_ratio = str(get_config("superimage.aspect_ratio", aspect_ratio) or aspect_ratio)
 
         token_mgr = await get_token_manager()
         await token_mgr.reload_if_stale()
