@@ -18,7 +18,7 @@ from app.services.grok.services.image import ImageGenerationService
 from app.services.grok.services.image_edit import ImageEditService
 from app.services.grok.services.model import ModelService
 from app.services.grok.services.video import VideoService
-from app.services.grok.utils.response import make_chat_response, wrap_image_content
+from app.services.grok.utils.response import make_chat_response, make_chat_chunk, make_response_id, wrap_image_content
 from app.services.token import get_token_manager
 from app.core.config import get_config
 from app.core.exceptions import ValidationException, AppException, ErrorType
@@ -166,6 +166,16 @@ def _superimage_config() -> ImageConfig:
     _validate_image_config(conf, stream=False)
     return conf
 
+
+def _superimage_config() -> ImageConfig:
+    n = int(get_config("superimage.n", 1) or 1)
+    size = str(get_config("superimage.size", "1792x1024") or "1792x1024")
+    response_format = _resolve_image_format(
+        str(get_config("superimage.response_format", "url") or "url")
+    )
+    conf = ImageConfig(n=n, size=size, response_format=response_format)
+    _validate_image_config(conf, stream=False)
+    return conf
 
 def _superimage_config() -> ImageConfig:
     n = int(get_config("superimage.n", 1) or 1)
@@ -492,7 +502,7 @@ def validate_request(request: ChatCompletionRequest):
                 param="image_config.n",
                 code="invalid_n",
             )
-        if request.stream and n not in (1, 2):
+        if request.model != "grok-superimage-1.0" and request.stream and n not in (1, 2):
             raise ValidationException(
                 message="Streaming is only supported when n=1 or n=2",
                 param="stream",
@@ -575,8 +585,15 @@ def validate_request(request: ChatCompletionRequest):
         request.video_config = config
 
 
+def _superimage_sse_response(model: str, content: str):
+    response_id = make_response_id()
 
+    async def _gen():
+        chunk = make_chat_chunk(response_id, model, content, index=0, is_final=True)
+        yield f"event: chat.completion.chunk\ndata: {orjson.dumps(chunk).decode()}\n\n"
+        yield "data: [DONE]\n\n"
 
+    return _gen()
 
 
 router = APIRouter(tags=["Chat"])
@@ -596,9 +613,9 @@ async def chat_completions(request: ChatCompletionRequest):
     model_info = ModelService.get(request.model)
     if request.model == "grok-superimage-1.0":
         prompt, _ = _extract_prompt_images(request.messages)
+        client_wants_stream = bool(request.stream)
         image_conf = _superimage_config()
         request.image_config = image_conf
-        request.stream = False
 
         response_format = _resolve_image_format(image_conf.response_format)
         n = image_conf.n or 1
@@ -648,6 +665,12 @@ async def chat_completions(request: ChatCompletionRequest):
             wrap_image_content(item, response_format) for item in outputs
         ) if outputs else ""
         usage = result.usage_override
+        if client_wants_stream:
+            return StreamingResponse(
+                _superimage_sse_response(request.model, content),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+            )
         return JSONResponse(
             content=make_chat_response(request.model, content, usage=usage),
             headers={"X-Superimage-Stream": "ignored"},
